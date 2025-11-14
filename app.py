@@ -175,7 +175,6 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    # Soundboard 'sounds' list removed
     return render_template('control_panel.html')
 
 @app.route('/api/status')
@@ -198,9 +197,7 @@ def status():
         'logs': global_logs
     })
 
-# --- /api/get_channels endpoint NOT INCLUDED (reverted) ---
-
-# --- Send Message Endpoint ---
+# --- Send Message Endpoint (Reverted) ---
 @app.route('/api/send_message', methods=['POST'])
 def send_message():
     if not bot_instance or not bot_instance.is_ready():
@@ -220,20 +217,16 @@ def send_message():
         """Asynchronously fetches the channel and sends the message."""
         try:
             channel_id_int = int(channel_id)
-            # Fetch channel works for both Text and Voice-Text channels
             channel = await bot_instance.fetch_channel(channel_id_int)
 
-            # Check for generic send_messages permission
             if not channel.permissions_for(channel.guild.me).send_messages:
                  return False, "Bot does not have permission to send messages in that channel."
 
-            # Prepare embed if image_url is provided
             embed_to_send = None
             if image_url:
                 embed_to_send = discord.Embed(color=discord.Color.blue())
                 embed_to_send.set_image(url=image_url)
             
-            # Send message
             await channel.send(content=content if content else None, embed=embed_to_send if embed_to_send else None)
             
             log_to_global(f"Sent message to #{channel.name} in {channel.guild.name}.")
@@ -265,6 +258,59 @@ def send_message():
     except Exception as e:
          log_to_global(f"Critical error running coroutine: {e}")
          return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
+
+# --- NEW: Owner Set VC Channel Endpoint ---
+@app.route('/api/set_vc_channel', methods=['POST'])
+def set_vc_channel_api():
+    if not bot_instance or not bot_instance.is_ready():
+        return jsonify({"success": False, "message": "Bot is offline."}), 400
+    
+    data = request.json
+    guild_id = data.get('guild_id')
+    channel_id = data.get('channel_id')
+
+    if not guild_id or not channel_id:
+        return jsonify({"success": False, "message": "Guild ID and Channel ID are required."}), 400
+
+    async def fetch_and_set():
+        """Asynchronously validates the channel and saves the config."""
+        try:
+            target_id_int = int(channel_id)
+            guild_id_str = str(guild_id) # Configs use string keys
+
+            # 1. Validate the channel
+            channel = await bot_instance.fetch_channel(target_id_int)
+            if not isinstance(channel, discord.VoiceChannel):
+                return False, f"Error: #{channel.name} is not a Voice Channel."
+
+            # 2. Save the config
+            if guild_id_str not in SERVER_CONFIGS:
+                SERVER_CONFIGS[guild_id_str] = {'channel_id': target_id_int, 'allowed_users': []}
+            else:
+                SERVER_CONFIGS[guild_id_str]['channel_id'] = target_id_int
+            
+            save_configs(SERVER_CONFIGS)
+            
+            log_to_global(f"Owner set VC for {channel.guild.name} to {channel.name}.")
+            return True, f"Success! Default VC for {channel.guild.name} set to {channel.name}."
+
+        except discord.NotFound:
+            return False, "Error: Channel ID not found."
+        except ValueError:
+            return False, "Error: Channel ID must be a number."
+        except Exception as e:
+            return False, f"An error occurred: {e}"
+
+    # Run it in the bot's loop
+    try:
+        future = asyncio.run_coroutine_threadsafe(fetch_and_set(), bot_loop)
+        success, message = future.result(timeout=10)
+        if success:
+            return jsonify({"success": True, "message": message})
+        else:
+            return jsonify({"success": False, "message": message}), 500
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
 
 # --- Utility to Update .env File ---
 def update_dotenv_token(new_token):
