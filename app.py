@@ -312,7 +312,7 @@ def set_vc_channel_api():
     except Exception as e:
         return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
 
-# --- NEW: Owner Force Join VC Endpoint ---
+# --- MODIFIED: Owner Force Join VC Endpoint (Better Error Handling) ---
 @app.route('/api/force_join_vc', methods=['POST'])
 def force_join_vc_api():
     if not bot_instance or not bot_instance.is_ready():
@@ -329,29 +329,49 @@ def force_join_vc_api():
         """Asynchronously fetches the guild/channel and joins."""
         try:
             target_id_int = int(channel_id)
-            guild = await bot_instance.fetch_guild(int(guild_id))
-            if not guild:
-                return False, "Guild not found."
-
-            channel = await bot_instance.fetch_channel(target_id_int)
-            if not isinstance(channel, discord.VoiceChannel):
-                return False, f"Error: #{channel.name} is not a Voice Channel."
-
-            # Check if bot is already in a VC in this guild
-            voice_client = guild.voice_client
-            if voice_client:
-                await voice_client.move_to(channel)
-                return True, f"Moved to {channel.name}."
-            else:
-                await channel.connect()
-                return True, f"Joined {channel.name}."
-        
-        except discord.NotFound:
-            return False, "Error: Channel or Guild ID not found."
+            guild_id_int = int(guild_id)
         except ValueError:
-            return False, "Error: Channel ID must be a number."
-        except Exception as e:
-            return False, f"An error occurred: {e}"
+            return False, "Error: Channel/Guild ID must be a number."
+
+        try:
+            guild = await bot_instance.fetch_guild(guild_id_int)
+        except discord.NotFound:
+            return False, f"Error: Guild ID {guild_id} not found. (Bot may not be in this server)"
+        except discord.Forbidden:
+             return False, "Error: Bot forbidden from fetching guild (permissions issue)."
+
+        if not guild:
+            return False, "Guild not found."
+
+        try:
+            channel = await bot_instance.fetch_channel(target_id_int)
+        except discord.NotFound:
+            return False, f"Error: Channel ID {channel_id} not found. (Check ID or bot's 'View Channel' permissions)"
+        except discord.Forbidden:
+            return False, "Error: Bot forbidden from fetching channel (permissions issue)."
+
+        if not isinstance(channel, discord.VoiceChannel):
+            return False, f"Error: {channel.name} is not a Voice Channel."
+
+        # Check if channel is even in the guild
+        if channel.guild.id != guild.id:
+            return False, f"Error: Channel {channel.name} is not in the selected server {guild.name}."
+
+        # Check permissions *before* trying to join
+        perms = channel.permissions_for(guild.me)
+        if not perms.view_channel:
+             return False, f"Error: Bot does not have 'View Channel' permission for {channel.name}."
+        if not perms.connect:
+            return False, f"Error: Bot does not have 'Connect' permission for {channel.name}."
+
+        # All checks passed, now join
+        voice_client = guild.voice_client
+        if voice_client:
+            await voice_client.move_to(channel)
+            return True, f"Moved to {channel.name}."
+        else:
+            await channel.connect()
+            return True, f"Joined {channel.name}."
 
     # Run it in the bot's loop
     try:
