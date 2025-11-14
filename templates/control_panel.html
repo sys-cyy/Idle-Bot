@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Idle Bot Control Panel (Owner)</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #2c2f33; color: #ffffff; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px; }
+        h1 { color: #7289da; border-bottom: 2px solid #7289da; padding-bottom: 10px; }
+        .panel { background-color: #23272a; padding: 15px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
+        .full-width { flex: 1 1 100%; }
+        .half-width { flex: 1 1 calc(50% - 10px); }
+        .log-box { height: 250px; overflow-y: scroll; background-color: #1e2124; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+        .log-box div { white-space: pre-wrap; word-break: break-all; margin-bottom: 5px; }
+        .sound-button { padding: 10px 20px; margin: 5px; background-color: #5865f2; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+        .sound-button:hover { background-color: #4752c4; }
+        .status-badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; }
+        .status-online { background-color: #43b581; }
+        .status-offline { background-color: #f04747; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #36393f; }
+        th { background-color: #36393f; }
+        input[type="text"], textarea { 
+            width: 100%; padding: 8px; margin-bottom: 10px; 
+            background: #36393f; color: white; border: none; 
+            box-sizing: border-box; resize: vertical; 
+        }
+    </style>
+</head>
+<body>
+    <h1>Idle Bot Owner Control Panel</h1>
+    <div class="container">
+
+        <div class="panel half-width">
+            <h2>Bot Status <span id="bot-status" class="status-offline status-badge">OFFLINE</span></h2>
+            
+            <div style="margin-top: 15px; padding: 10px; background: #1e2124; border-radius: 4px;">
+                <h3>Bot Token Management</h3>
+                <input type="text" id="token-input" placeholder="Paste New Token Here" autocomplete="off">
+                <button class="sound-button" onclick="restartBot()" style="width: 100%; background-color: #f04747;">🛑 STOP & RESTART BOT</button>
+            </div>
+            
+            <h3>Logs (Last 50 Events)</h3>
+            <div id="log-display" class="log-box"></div>
+        </div>
+
+        <div class="panel half-width">
+            <h2>✉️ Send Message</h2>
+            <div id="send-message-form">
+                <label for="channel-id-input">Channel ID (Text or Voice)</label>
+                <input type="text" id="channel-id-input" placeholder="Paste Text or Voice Channel ID Here" autocomplete="off">
+                
+                <label for="message-content-input">Message Content</label>
+                <textarea id="message-content-input" rows="4" placeholder="Type your message..."></textarea>
+                
+                <label for="image-url-input">Image URL (Optional)</label>
+                <input type="text" id="image-url-input" placeholder="https://i.imgur.com/your-image.png" autocomplete="off">
+                
+                <button class="sound-button" onclick="sendMessage()" style="width: 100%;">Send Message</button>
+            </div>
+            <p style="margin-top: 20px;">*Bot must have 'Send Messages' permission in the channel.</p>
+        </div>
+
+        <div class="panel full-width">
+            <h2>Joined Servers</h2>
+            <table id="guild-table">
+                <thead>
+                    <tr>
+                        <th>Server Name</th>
+                        <th>ID</th>
+                        <th>Members</th>
+                        <th>VC Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    </tbody>
+            </table>
+        </div>
+
+    </div>
+    
+    <script id="guild-data" type="application/json"></script>
+
+    <script>
+        
+        // Restart Bot Function
+        async function restartBot() {
+            const token = document.getElementById('token-input').value;
+            if (!token || token.includes('Paste New Token Here')) {
+                alert('Please paste a valid token into the box.');
+                return;
+            }
+
+            if (!confirm("Are you sure you want to STOP and RESTART the bot with the new token? This will also save it to your .env file.")) {
+                return;
+            }
+
+            const response = await fetch('/api/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token })
+            });
+
+            const result = await response.json();
+            alert(result.message);
+            document.getElementById('token-input').value = '';
+            updatePanel(); // Force an immediate status update
+        }
+
+        // Send Message Function
+        async function sendMessage() {
+            const channelId = document.getElementById('channel-id-input').value;
+            const content = document.getElementById('message-content-input').value;
+            const imageUrl = document.getElementById('image-url-input').value;
+
+            if (!channelId) {
+                alert('Error: Channel ID is required.');
+                return;
+            }
+            if (!content && !imageUrl) {
+                alert('Error: You must provide either message content or an image URL.');
+                return;
+            }
+
+            const response = await fetch('/api/send_message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    channel_id: channelId, 
+                    content: content, 
+                    image_url: imageUrl 
+                })
+            });
+
+            const result = await response.json();
+            alert(result.message);
+            
+            if (result.success) {
+                // Clear inputs on success
+                document.getElementById('message-content-input').value = '';
+                document.getElementById('image-url-input').value = '';
+            }
+        }
+
+        async function updatePanel() {
+            const response = await fetch('/api/status');
+            const data = await response.json();
+
+            // 1. Update Status
+            const statusElement = document.getElementById('bot-status');
+            statusElement.textContent = data.status.toUpperCase();
+            statusElement.className = data.status === 'Running' ? 'status-online status-badge' : 'status-offline status-badge';
+            
+            // 2. Update Logs
+            const logDisplay = document.getElementById('log-display');
+            logDisplay.innerHTML = data.logs.reverse().map(log => `<div>${log}</div>`).join('');
+            
+            // 3. Update Guild List & Hidden Data
+            const guildTableBody = document.querySelector('#guild-table tbody');
+            guildTableBody.innerHTML = '';
+            
+            document.getElementById('guild-data').textContent = JSON.stringify(data.guilds);
+
+            data.guilds.forEach(guild => {
+                const row = guildTableBody.insertRow();
+                row.insertCell().textContent = guild.name;
+                row.insertCell().textContent = guild.id;
+                row.insertCell().textContent = guild.member_count;
+                row.insertCell().textContent = guild.vc_status;
+            });
+        }
+
+        // Run update on load and every 5 seconds
+        updatePanel();
+        setInterval(updatePanel, 5000);
+    </script>
+</body>
+</html>
