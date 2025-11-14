@@ -197,6 +197,38 @@ def status():
         'logs': global_logs
     })
 
+# --- NEW: Get Voice Channels Endpoint ---
+@app.route('/api/get_voice_channels')
+def get_voice_channels():
+    if not bot_instance or not bot_instance.is_ready():
+        return jsonify({"success": False, "message": "Bot is offline."}), 400
+
+    guild_id = request.args.get('guild_id')
+    if not guild_id:
+        return jsonify({"success": False, "message": "Guild ID is required."}), 400
+
+    try:
+        guild = bot_instance.get_guild(int(guild_id))
+        if not guild:
+            return jsonify({"success": False, "message": "Guild not found."}), 404
+        
+        channel_list = []
+        
+        # Get Voice Channels where bot can view and connect
+        for channel in guild.voice_channels:
+            perms = channel.permissions_for(guild.me)
+            if perms.view_channel and perms.connect:
+                channel_list.append({"id": channel.id, "name": f"🔊 {channel.name}"})
+        
+        # Sort by name for a clean list
+        channel_list.sort(key=lambda x: x['name'].lower())
+        
+        return jsonify({"success": True, "channels": channel_list})
+
+    except Exception as e:
+        log_to_global(f"Error getting channels: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
 # --- Send Message Endpoint (Reverted) ---
 @app.route('/api/send_message', methods=['POST'])
 def send_message():
@@ -312,7 +344,7 @@ def set_vc_channel_api():
     except Exception as e:
         return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
 
-# --- MODIFIED: Owner Force Join VC Endpoint (Better Error Handling) ---
+# --- Owner Force Join VC Endpoint (Patched for better errors) ---
 @app.route('/api/force_join_vc', methods=['POST'])
 def force_join_vc_api():
     if not bot_instance or not bot_instance.is_ready():
@@ -353,18 +385,15 @@ def force_join_vc_api():
         if not isinstance(channel, discord.VoiceChannel):
             return False, f"Error: {channel.name} is not a Voice Channel."
 
-        # Check if channel is even in the guild
         if channel.guild.id != guild.id:
             return False, f"Error: Channel {channel.name} is not in the selected server {guild.name}."
 
-        # Check permissions *before* trying to join
         perms = channel.permissions_for(guild.me)
         if not perms.view_channel:
              return False, f"Error: Bot does not have 'View Channel' permission for {channel.name}."
         if not perms.connect:
             return False, f"Error: Bot does not have 'Connect' permission for {channel.name}."
 
-        # All checks passed, now join
         voice_client = guild.voice_client
         if voice_client:
             await voice_client.move_to(channel)
