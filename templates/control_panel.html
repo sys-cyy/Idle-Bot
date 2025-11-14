@@ -71,8 +71,9 @@
                 <input type="text" id="vc-id-input" placeholder="Paste Voice Channel ID Here" autocomplete="off">
                 
                 <button class="sound-button" onclick="setVcChannel()" style="width: 100%; background-color: #43b581;">Set Default VC</button>
+                <button class="sound-button" onclick="forceJoinVc()" style="width: 100%; margin-top: 10px;">Force Join VC</button>
             </div>
-            <p style="margin-top: 20px;">*This overrides the in-server `.vcchannelid` command.</p>
+            <p style="margin-top: 20px;">*Use this to manually set or join a VC as the owner.</p>
         </div>
 
         <div class="panel full-width">
@@ -156,7 +157,7 @@
             }
         }
 
-        // NEW: Set VC Channel Function
+        // Set VC Channel Function
         async function setVcChannel() {
             const guildId = document.getElementById('vc-server-select').value;
             const channelId = document.getElementById('vc-id-input').value;
@@ -181,6 +182,30 @@
             if (result.success) {
                 document.getElementById('vc-id-input').value = ''; // Clear input
             }
+        }
+        
+        // NEW: Force Join VC Function
+        async function forceJoinVc() {
+            const guildId = document.getElementById('vc-server-select').value;
+            const channelId = document.getElementById('vc-id-input').value;
+
+            if (!guildId || !channelId) {
+                alert('Error: You must select a server AND provide a Voice Channel ID.');
+                return;
+            }
+
+            const response = await fetch('/api/force_join_vc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    guild_id: guildId, 
+                    channel_id: channelId
+                })
+            });
+
+            const result = await response.json();
+            alert(result.message); // Show success or error
+            // Don't clear input, in case user wants to set it as default now
         }
 
         // MODIFIED: updatePanel function
