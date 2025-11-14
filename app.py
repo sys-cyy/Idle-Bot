@@ -259,7 +259,7 @@ def send_message():
          log_to_global(f"Critical error running coroutine: {e}")
          return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
 
-# --- NEW: Owner Set VC Channel Endpoint ---
+# --- Owner Set VC Channel Endpoint ---
 @app.route('/api/set_vc_channel', methods=['POST'])
 def set_vc_channel_api():
     if not bot_instance or not bot_instance.is_ready():
@@ -306,6 +306,59 @@ def set_vc_channel_api():
         future = asyncio.run_coroutine_threadsafe(fetch_and_set(), bot_loop)
         success, message = future.result(timeout=10)
         if success:
+            return jsonify({"success": True, "message": message})
+        else:
+            return jsonify({"success": False, "message": message}), 500
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Critical error: {e}"}), 500
+
+# --- NEW: Owner Force Join VC Endpoint ---
+@app.route('/api/force_join_vc', methods=['POST'])
+def force_join_vc_api():
+    if not bot_instance or not bot_instance.is_ready():
+        return jsonify({"success": False, "message": "Bot is offline."}), 400
+    
+    data = request.json
+    guild_id = data.get('guild_id')
+    channel_id = data.get('channel_id')
+
+    if not guild_id or not channel_id:
+        return jsonify({"success": False, "message": "Guild ID and Channel ID are required."}), 400
+
+    async def fetch_and_join():
+        """Asynchronously fetches the guild/channel and joins."""
+        try:
+            target_id_int = int(channel_id)
+            guild = await bot_instance.fetch_guild(int(guild_id))
+            if not guild:
+                return False, "Guild not found."
+
+            channel = await bot_instance.fetch_channel(target_id_int)
+            if not isinstance(channel, discord.VoiceChannel):
+                return False, f"Error: #{channel.name} is not a Voice Channel."
+
+            # Check if bot is already in a VC in this guild
+            voice_client = guild.voice_client
+            if voice_client:
+                await voice_client.move_to(channel)
+                return True, f"Moved to {channel.name}."
+            else:
+                await channel.connect()
+                return True, f"Joined {channel.name}."
+        
+        except discord.NotFound:
+            return False, "Error: Channel or Guild ID not found."
+        except ValueError:
+            return False, "Error: Channel ID must be a number."
+        except Exception as e:
+            return False, f"An error occurred: {e}"
+
+    # Run it in the bot's loop
+    try:
+        future = asyncio.run_coroutine_threadsafe(fetch_and_join(), bot_loop)
+        success, message = future.result(timeout=10)
+        if success:
+            log_to_global(f"Owner forced join to {message} in guild {guild_id}")
             return jsonify({"success": True, "message": message})
         else:
             return jsonify({"success": False, "message": message}), 500
