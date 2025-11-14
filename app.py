@@ -48,6 +48,11 @@ bot_instance = None
 bot_loop = None 
 global_logs = [] 
 
+# --- ADD YOUR ID HERE ---
+# Get your ID by enabling Developer Mode in Discord, 
+# then right-clicking your profile and selecting "Copy ID".
+BOT_OWNER_ID = 526252410440646671
+
 def log_to_global(message):
     """Adds a timestamped message to the global log list."""
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("[%Y-%m-%d %H:%M:%S UTC]")
@@ -58,13 +63,23 @@ def log_to_global(message):
 # --- Custom Permission Check ---
 
 def is_admin_or_allowed():
-    """Check if the user has Administrator permission OR is explicitly allowed."""
+    """Check if the user is Bot Owner, Admin, OR is explicitly allowed."""
     async def predicate(ctx):
-        if ctx.author.guild_permissions.administrator: return True
+        # 1. NEW: Check if the user is the hard-coded Bot Owner
+        if ctx.author.id == BOT_OWNER_ID:
+            return True
+            
+        # 2. Check for Administrator permission
+        if ctx.author.guild_permissions.administrator:
+            return True
+        
+        # 3. Check if the user is explicitly allowed by the server owner
         guild_id_str = str(ctx.guild.id)
         if guild_id_str in SERVER_CONFIGS:
             allowed_users = SERVER_CONFIGS[guild_id_str].get('allowed_users', [])
-            if ctx.author.id in allowed_users: return True
+            if ctx.author.id in allowed_users:
+                return True
+                
         return False
     return commands.check(predicate)
 
@@ -77,7 +92,8 @@ def get_bot_client(token):
     intents.voice_states = True 
     intents.guilds = True       
     
-    bot = commands.Bot(command_prefix='.', intents=intents)
+    # Set the owner_id for the @commands.is_owner() check
+    bot = commands.Bot(command_prefix='.', intents=intents, owner_id=BOT_OWNER_ID)
 
     @bot.event
     async def on_ready():
@@ -86,23 +102,27 @@ def get_bot_client(token):
         bot_loop = bot.loop
         log_to_global("🤖 Bot is operational.")
 
-    # --- PREFIX COMMANDS (Unchanged) ---
+    # --- PREFIX COMMANDS ---
     
-    # (All .adduser, .vcchannelid, .joinvc, .leavevc, .help, and on_command_error functions remain unchanged)
-    # ... (Omitted for brevity, but they are still here) ...
+    # 1. ADDUSER Command (Owner Only)
     @bot.command(name="adduser", help="[OWNER ONLY] Adds a user who can use the bot's voice commands.")
-    @commands.is_owner()
+    @commands.is_owner() # This check now uses the BOT_OWNER_ID
     async def add_user_to_config(ctx: commands.Context, member: discord.Member):
         guild_id_str = str(ctx.guild.id)
+        
         if guild_id_str not in SERVER_CONFIGS:
             SERVER_CONFIGS[guild_id_str] = {'channel_id': None, 'allowed_users': []}
+            
         allowed_users = SERVER_CONFIGS[guild_id_str]['allowed_users']
+        
         if member.id in allowed_users:
             return await ctx.send(f"❌ **{member.display_name}** is already allowed to use the commands.")
+        
         allowed_users.append(member.id)
         save_configs(SERVER_CONFIGS)
         await ctx.send(f"✅ **{member.display_name}** can now use the voice configuration commands.")
 
+    # 2. VCCHANNELID Command (Admin/Allowed Only)
     @bot.command(name="vcchannelid", help="[ADMIN/ALLOWED] Sets the default Voice Channel ID for this server.")
     @is_admin_or_allowed()
     async def set_vc_channel_id(ctx: commands.Context, channel_id: str):
@@ -120,6 +140,7 @@ def get_bot_client(token):
         except (discord.NotFound, discord.Forbidden):
             await ctx.send(f"✅ Success! Channel ID `{target_id}` is saved, but I could not find or access that channel.")
 
+    # 3. JOINVC Command (Admin/Allowed Only)
     @bot.command(name="joinvc", help="[ADMIN/ALLOWED] Makes the bot join the configured voice channel.")
     @is_admin_or_allowed()
     async def join_vc(ctx: commands.Context):
@@ -141,6 +162,7 @@ def get_bot_client(token):
                 log_to_global(f"Voice join error: {e}")
                 await ctx.send("❌ Error joining VC. Check bot permissions (Connect, Speak).")
 
+    # 4. LEAVEVC Command (Admin/Allowed Only)
     @bot.command(name="leavevc", help="[ADMIN/ALLOWED] Makes the bot leave the voice channel.")
     @is_admin_or_allowed()
     async def leave_vc(ctx: commands.Context):
@@ -150,7 +172,9 @@ def get_bot_client(token):
         else:
             await ctx.send("❌ Error: I'm not in a voice channel!")
             
+    # 5. HELP Command (Customized)
     bot.remove_command('help')
+    
     @bot.command(name="help")
     async def custom_help(ctx: commands.Context):
         embed = discord.Embed(title="Idle Bot Command Guide 🤖", description="All commands use the prefix **`.`**", color=discord.Color.blue())
@@ -159,10 +183,11 @@ def get_bot_client(token):
         embed.set_footer(text="Configuration commands require the Administrator permission or being added by the server owner.")
         await ctx.send(embed=embed)
 
+    # Error handler
     @bot.event
     async def on_command_error(ctx, error):
         if isinstance(error, commands.MissingPermissions): await ctx.send(f"❌ You need the **Administrator** permission to use this command.")
-        elif isinstance(error, commands.NotOwner): await ctx.send("❌ Only the **Server Owner** can use the `.adduser` command.")
+        elif isinstance(error, commands.NotOwner): await ctx.send("❌ Only the **Bot Owner** can use the `.adduser` command.")
         elif isinstance(error, commands.CheckFailure): await ctx.send("❌ You must have the **Administrator** permission or be explicitly added by the server owner to use this command.")
         elif isinstance(error, commands.CommandNotFound): pass 
         else: log_to_global(f"Unhandled command error: {error}")
