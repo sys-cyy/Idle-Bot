@@ -25,6 +25,7 @@
             background: #36393f; color: white; border: none; 
             box-sizing: border-box; resize: vertical; 
         }
+        select:disabled { background-color: #1e2124; color: #72767d; }
     </style>
 </head>
 <body>
@@ -63,17 +64,19 @@
             <h2 style="margin-top: 20px;">⚙️ Owner VC Configuration</h2>
             <div id="vc-config-form">
                 <label for="vc-server-select">Server</label>
-                <select id="vc-server-select">
+                <select id="vc-server-select" onchange="populateVcChannels()">
                     <option value="">-- Select a Server --</option>
                 </select>
 
-                <label for="vc-id-input">Voice Channel ID</label>
-                <input type="text" id="vc-id-input" placeholder="Paste Voice Channel ID Here" autocomplete="off">
+                <label for="vc-channel-select">Voice Channel</label>
+                <select id="vc-channel-select" disabled>
+                    <option value="">-- Select a Server First --</option>
+                </select>
                 
-                <button class="sound-button" onclick="setVcChannel()" style="width: 100%; background-color: #43b581;">Set Default VC</button>
+                <button class="sound-button" onclick="setVcChannel()" style="width: 100%; background-color: #43b581;">Set as Default VC</button>
                 <button class="sound-button" onclick="forceJoinVc()" style="width: 100%; margin-top: 10px;">Force Join VC</button>
             </div>
-            <p style="margin-top: 20px;">*Use this to manually set or join a VC as the owner.</p>
+            <p style="margin-top: 20px;">*This will only show VCs the bot can see and join.</p>
         </div>
 
         <div class="panel full-width">
@@ -151,19 +154,18 @@
             alert(result.message);
             
             if (result.success) {
-                // Clear inputs on success
                 document.getElementById('message-content-input').value = '';
                 document.getElementById('image-url-input').value = '';
             }
         }
 
-        // Set VC Channel Function
+        // MODIFIED: Set VC Channel Function
         async function setVcChannel() {
             const guildId = document.getElementById('vc-server-select').value;
-            const channelId = document.getElementById('vc-id-input').value;
+            const channelId = document.getElementById('vc-channel-select').value; // Get from dropdown
 
             if (!guildId || !channelId) {
-                alert('Error: You must select a server AND provide a Voice Channel ID.');
+                alert('Error: You must select a server AND a voice channel.');
                 return;
             }
 
@@ -178,19 +180,15 @@
 
             const result = await response.json();
             alert(result.message); // Show success or error
-            
-            if (result.success) {
-                document.getElementById('vc-id-input').value = ''; // Clear input
-            }
         }
         
-        // NEW: Force Join VC Function
+        // MODIFIED: Force Join VC Function
         async function forceJoinVc() {
             const guildId = document.getElementById('vc-server-select').value;
-            const channelId = document.getElementById('vc-id-input').value;
+            const channelId = document.getElementById('vc-channel-select').value; // Get from dropdown
 
             if (!guildId || !channelId) {
-                alert('Error: You must select a server AND provide a Voice Channel ID.');
+                alert('Error: You must select a server AND a voice channel.');
                 return;
             }
 
@@ -205,7 +203,45 @@
 
             const result = await response.json();
             alert(result.message); // Show success or error
-            // Don't clear input, in case user wants to set it as default now
+        }
+        
+        // NEW: Populate VC Channels Dropdown
+        async function populateVcChannels() {
+            const guildId = document.getElementById('vc-server-select').value;
+            const channelSelect = document.getElementById('vc-channel-select');
+
+            if (!guildId) {
+                channelSelect.innerHTML = '<option value="">-- Select a Server First --</option>';
+                channelSelect.disabled = true;
+                return;
+            }
+            
+            // Show loading state
+            channelSelect.innerHTML = '<option value="">-- Loading VCs... --</option>';
+            channelSelect.disabled = false;
+
+            try {
+                const response = await fetch(`/api/get_voice_channels?guild_id=${guildId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    channelSelect.innerHTML = '<option value="">-- Select a Voice Channel --</option>';
+                    data.channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.id;
+                        option.textContent = channel.name; // e.g., "🔊 General"
+                        channelSelect.appendChild(option);
+                    });
+                    channelSelect.disabled = false;
+                } else {
+                    alert(data.message);
+                    channelSelect.innerHTML = '<option value="">-- Error fetching channels --</option>';
+                    channelSelect.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error fetching VCs:', error);
+                alert('Failed to fetch voice channels from the server.');
+            }
         }
 
         // MODIFIED: updatePanel function
@@ -224,7 +260,7 @@
             
             // 3. Update Guild List & Hidden Data
             const guildTableBody = document.querySelector('#guild-table tbody');
-            const vcServerSelect = document.getElementById('vc-server-select'); // Get the new dropdown
+            const vcServerSelect = document.getElementById('vc-server-select'); // Get the VC config dropdown
             
             const currentVcServer = vcServerSelect.value; // Save current selection
 
@@ -241,7 +277,7 @@
                 row.insertCell().textContent = guild.member_count;
                 row.insertCell().textContent = guild.vc_status;
 
-                // --- NEW: Populate VC Config Server Dropdown ---
+                // Populate VC Config Server Dropdown
                 const option = document.createElement('option');
                 option.value = guild.id;
                 option.textContent = guild.name;
@@ -250,6 +286,9 @@
 
             // Re-select old server if it's still in the list
             vcServerSelect.value = currentVcServer;
+            if(vcServerSelect.value !== currentVcServer) {
+                populateVcChannels(); // Reset VC channel list if server is no longer valid
+            }
         }
 
         // Run update on load and every 5 seconds
