@@ -20,7 +20,7 @@
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 8px; text-align: left; border-bottom: 1px solid #36393f; }
         th { background-color: #36393f; }
-        input[type="text"], textarea { 
+        input[type="text"], textarea, select { 
             width: 100%; padding: 8px; margin-bottom: 10px; 
             background: #36393f; color: white; border: none; 
             box-sizing: border-box; resize: vertical; 
@@ -59,6 +59,20 @@
                 <button class="sound-button" onclick="sendMessage()" style="width: 100%;">Send Message</button>
             </div>
             <p style="margin-top: 20px;">*Bot must have 'Send Messages' permission in the channel.</p>
+
+            <h2 style="margin-top: 20px;">⚙️ Owner VC Configuration</h2>
+            <div id="vc-config-form">
+                <label for="vc-server-select">Server</label>
+                <select id="vc-server-select">
+                    <option value="">-- Select a Server --</option>
+                </select>
+
+                <label for="vc-id-input">Voice Channel ID</label>
+                <input type="text" id="vc-id-input" placeholder="Paste Voice Channel ID Here" autocomplete="off">
+                
+                <button class="sound-button" onclick="setVcChannel()" style="width: 100%; background-color: #43b581;">Set Default VC</button>
+            </div>
+            <p style="margin-top: 20px;">*This overrides the in-server `.vcchannelid` command.</p>
         </div>
 
         <div class="panel full-width">
@@ -142,6 +156,34 @@
             }
         }
 
+        // NEW: Set VC Channel Function
+        async function setVcChannel() {
+            const guildId = document.getElementById('vc-server-select').value;
+            const channelId = document.getElementById('vc-id-input').value;
+
+            if (!guildId || !channelId) {
+                alert('Error: You must select a server AND provide a Voice Channel ID.');
+                return;
+            }
+
+            const response = await fetch('/api/set_vc_channel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    guild_id: guildId, 
+                    channel_id: channelId
+                })
+            });
+
+            const result = await response.json();
+            alert(result.message); // Show success or error
+            
+            if (result.success) {
+                document.getElementById('vc-id-input').value = ''; // Clear input
+            }
+        }
+
+        // MODIFIED: updatePanel function
         async function updatePanel() {
             const response = await fetch('/api/status');
             const data = await response.json();
@@ -157,17 +199,32 @@
             
             // 3. Update Guild List & Hidden Data
             const guildTableBody = document.querySelector('#guild-table tbody');
+            const vcServerSelect = document.getElementById('vc-server-select'); // Get the new dropdown
+            
+            const currentVcServer = vcServerSelect.value; // Save current selection
+
             guildTableBody.innerHTML = '';
+            vcServerSelect.innerHTML = '<option value="">-- Select a Server --</option>'; // Clear and add default
             
             document.getElementById('guild-data').textContent = JSON.stringify(data.guilds);
 
             data.guilds.forEach(guild => {
+                // Populate Table
                 const row = guildTableBody.insertRow();
                 row.insertCell().textContent = guild.name;
                 row.insertCell().textContent = guild.id;
                 row.insertCell().textContent = guild.member_count;
                 row.insertCell().textContent = guild.vc_status;
+
+                // --- NEW: Populate VC Config Server Dropdown ---
+                const option = document.createElement('option');
+                option.value = guild.id;
+                option.textContent = guild.name;
+                vcServerSelect.appendChild(option);
             });
+
+            // Re-select old server if it's still in the list
+            vcServerSelect.value = currentVcServer;
         }
 
         // Run update on load and every 5 seconds
